@@ -6,13 +6,16 @@ A Rust implementation of Everything's IPC SDK.
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(feature = "doc", doc = document_features::document_features!())]
 
+use ::windows::{
+    Win32::{
+        Foundation::{FALSE, HWND, LPARAM, TRUE, WPARAM},
+        System::Threading::GetCurrentThreadId,
+        UI::WindowsAndMessaging::{EnumThreadWindows, GetClassNameW, SendMessageW, WM_USER},
+    },
+    core::BOOL,
+};
 use tracing::debug;
 use widestring::{U16Str, u16str};
-use windows_sys::Win32::{
-    Foundation::{BOOL, FALSE, HWND, LPARAM, TRUE},
-    System::Threading::GetCurrentThreadId,
-    UI::WindowsAndMessaging::{EnumThreadWindows, GetClassNameW, SendMessageW, WM_USER},
-};
 
 pub mod pipe;
 mod windows;
@@ -26,10 +29,10 @@ struct EnumWindowsData {
 }
 
 unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-    let data = unsafe { &mut *(lparam as *mut EnumWindowsData) };
+    let data = unsafe { &mut *(lparam.0 as *mut EnumWindowsData) };
 
     let mut buf = [0; 256];
-    let len = unsafe { GetClassNameW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
+    let len = unsafe { GetClassNameW(hwnd, &mut buf) };
     if len > 0 {
         let class_name = U16Str::from_slice(&buf[..len as usize]);
         // debug!(?hwnd, ?class_name, "enum_windows_proc");
@@ -60,9 +63,13 @@ impl IpcWindow {
 
         let tid = unsafe { GetCurrentThreadId() };
         debug!(?tid, "from_current_thread");
-        unsafe {
-            EnumThreadWindows(tid, Some(enum_windows_proc), &mut data as *mut _ as LPARAM);
-        }
+        _ = unsafe {
+            EnumThreadWindows(
+                tid,
+                Some(enum_windows_proc),
+                LPARAM(&mut data as *mut _ as isize),
+            )
+        };
 
         data.result
     }
@@ -90,8 +97,14 @@ impl IpcWindow {
         // const EVERYTHING_IPC_GET_TARGET_MACHINE: u32 = 5;
 
         let send_u32 = |command: u32| unsafe {
-            SendMessageW(self.hwnd, EVERYTHING_WM_IPC, command as usize, 0)
-        } as u32;
+            SendMessageW(
+                self.hwnd,
+                EVERYTHING_WM_IPC,
+                Some(WPARAM(command as usize)),
+                None,
+            )
+            .0 as u32
+        };
 
         Version {
             major: send_u32(EVERYTHING_IPC_GET_MAJOR_VERSION),

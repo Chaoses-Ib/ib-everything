@@ -496,14 +496,15 @@ impl EverythingClient {
     ///
     /// A case sensensitive search is performed first.
     /// If no folder is found a case insensitive search is performed.
-    pub fn get_folder_size_from_filename(&self, filename: &str) -> Result<u64, IpcError> {
+    #[doc(alias = "get_folder_size_from_filename")]
+    pub fn get_folder_size(&self, path: &str) -> Result<u64, IpcError> {
         let mut value: u64 = u64::MAX;
         let mut num_read: usize = 0;
 
         let result = self.ioctrl(
             COMMAND_GET_FOLDER_SIZE,
-            filename.as_ptr(),
-            filename.len(),
+            path.as_ptr(),
+            path.len(),
             &mut value as *mut u64 as *mut u8,
             mem::size_of::<u64>(),
             &mut num_read,
@@ -555,10 +556,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_folder_size_from_filename() {
+    async fn get_folder_size() {
         let client = EverythingClient::builder().build().await.expect("connect");
 
-        let result = client.get_folder_size_from_filename(r"C:\Windows");
+        let result = client.get_folder_size(r"C:\Windows");
 
         match result {
             Ok(size) => {

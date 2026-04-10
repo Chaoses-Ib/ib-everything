@@ -36,6 +36,7 @@ use crate::{IpcWindow, windows::get_current_module_handle};
 
 mod types;
 pub use types::*;
+mod ext;
 
 /// Errors that can occur when querying Everything
 #[derive(Debug, thiserror::Error)]
@@ -55,6 +56,9 @@ pub enum IpcError {
     /// Query timed out waiting for response
     #[error("query timed out")]
     Timeout,
+
+    #[error("query: {0}")]
+    Query(&'static str),
 }
 
 // ==================== Reply Window ====================

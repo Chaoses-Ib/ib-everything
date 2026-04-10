@@ -4,6 +4,7 @@ A Rust implementation of Everything's IPC SDK.
 - [`IpcWindow`]: A minimal IPC interface for Everything v1.4+.
 - [`wm`]: Everything's window message IPC interface, supported by Everything v1.4+.
 - [`pipe`]: Everything's named pipe IPC interface, supported by Everything v1.5+.
+- [`folder`]: Folder-based batch IPC and cache.
 */
 //!
 //! ## Features
@@ -28,6 +29,8 @@ use crate::wm::{
     EVERYTHING_IPC_IS_FILE_INFO_INDEXED,
 };
 
+#[cfg(feature = "folder")]
+pub mod folder;
 pub mod pipe;
 mod windows;
 pub mod wm;

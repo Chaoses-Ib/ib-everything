@@ -49,6 +49,7 @@ thread_local! {
 /// - `path`: An absolute path to a folder
 /// - `timeout`: Optional timeout for IPC queries.
 ///   If `None`, uses the default timeout.
+/// - `parent_max_size`: Optional mutable reference to receive the maximum size of folders in the parent folder.
 ///
 /// ## Returns
 /// - `Ok(u64)`: The size in bytes
@@ -57,6 +58,7 @@ thread_local! {
 pub fn get_folder_size(
     #[builder(start_fn)] path: &Path,
     timeout: Option<Duration>,
+    parent_max_size: Option<&mut u64>,
 ) -> Result<u64, Error> {
     // Get the parent directory
     let parent = match path.parent() {
@@ -139,11 +141,16 @@ pub fn get_folder_size(
         .ok_or(Error::RelativePath)?
         .to_string();
 
-    match RESULT_MAP.with(|cell| unsafe {
-        (*cell.get())
-            .as_ref()
-            .and_then(|m| m.get(&filename))
-            .copied()
+    match RESULT_MAP.with(|cell| {
+        let map = unsafe { &*cell.get() }.as_ref();
+
+        if let Some(max_size) = parent_max_size {
+            *max_size = map
+                .and_then(|m| m.values().max().copied())
+                .unwrap_or_default();
+        }
+
+        map.and_then(|m| m.get(&filename)).copied()
     }) {
         // If size is 0, try with realpath
         Some(0) => {
@@ -194,5 +201,25 @@ mod tests {
         let r = get_folder_size(Path::new(r"C:\Users")).call();
         dbg!(&r);
         assert!(r.unwrap() > 0);
+    }
+
+    #[test_log::test]
+    #[test_log(default_log_filter = "trace")]
+    fn get_folder_size_ev_max() {
+        let mut max_size: u64 = 0;
+        let r = get_folder_size(Path::new(r"C:\Windows"))
+            .parent_max_size(&mut max_size)
+            .call();
+        dbg!(&r, max_size);
+        assert!(r.unwrap() > 0);
+
+        let mut max_size2: u64 = 0;
+        let r = get_folder_size(Path::new(r"C:\Users"))
+            .parent_max_size(&mut max_size2)
+            .call();
+        dbg!(&r, max_size2);
+        assert!(r.unwrap() > 0);
+
+        assert_eq!(max_size, max_size2);
     }
 }

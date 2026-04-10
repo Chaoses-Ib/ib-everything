@@ -1,5 +1,5 @@
 /*!
-Rust implementation of Everything v1.5's named pipe IPC interface.
+Everything's named pipe IPC interface, supported by Everything v1.5+.
 
 [Everything 1.5 SDK - voidtools forum](https://www.voidtools.com/forum/viewtopic.php?t=15853)
 

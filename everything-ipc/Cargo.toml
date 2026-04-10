@@ -10,12 +10,21 @@ license.workspace = true
 keywords.workspace = true
 
 [features]
+default = [
+    "tokio",
+]
 
+## Tokio async runtime.
+tokio = [
+    "tokio/sync",
+]
 
 doc = ["dep:document-features"]
 
 [dependencies]
+bitflags = "2"
 bon = "3"
+derive_more = { version = "2", features = ["try_from"] }
 document-features = { version = "0.2", optional = true }
 thiserror = "2"
 tokio = { version = "1", features = ["time"] }
@@ -23,10 +32,13 @@ tracing = "0.1"
 widestring = "1"
 windows = { version = "0.62", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_Storage_FileSystem",
+    "Win32_System_DataExchange",
     "Win32_System_IO",
     "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
     "Win32_System_Memory",
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
@@ -37,6 +49,7 @@ windows = { version = "0.62", features = [
 # ] }
 
 [dev-dependencies]
+test-log = { version = "0.2", default-features = false, features = ["color", "trace", "unstable"] }
 tokio = { version = "1", features = ["macros", "rt"] }
 
 [package.metadata.docs.rs]

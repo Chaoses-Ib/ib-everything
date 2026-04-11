@@ -11,12 +11,12 @@ keywords.workspace = true
 
 [features]
 default = [
-    "tokio",
 ]
 
 ## Tokio async runtime.
+## Required by async querying and Everything v1.5's [`pipe`] IPC interface.
 tokio = [
-    "tokio/sync",
+    "dep:tokio",
 ]
 
 ## Folder-based batch IPC and cache.
@@ -33,7 +33,10 @@ derive_more = { version = "2", features = ["try_from"] }
 document-features = { version = "0.2", optional = true }
 rapidhash = { version = "4", optional = true }
 thiserror = "2"
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", optional = true, features = [
+    "sync",
+    "time",
+] }
 tracing = "0.1"
 widestring = "1"
 windows = { version = "0.62", features = [
@@ -56,6 +59,7 @@ windows = { version = "0.62", features = [
 
 [dev-dependencies]
 everything-ipc = { path = ".", features = [
+    "tokio",
     "folder",
 ] }
 test-log = { version = "0.2", default-features = false, features = ["color", "trace", "unstable"] }

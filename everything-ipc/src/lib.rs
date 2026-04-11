@@ -80,6 +80,7 @@ use crate::wm::{
 
 #[cfg(feature = "folder")]
 pub mod folder;
+#[cfg(feature = "tokio")]
 pub mod pipe;
 pub mod search;
 mod windows;

@@ -74,4 +74,4 @@ Increase build size by ~100 KiB.
   Unlike `-debug`, `-debug-log` doesn't work with stdout/stderr outputs.
 
 ## Plugins using this library
-- [IbEverythingExt: Everything 拼音搜索、ローマ字検索、快速选择扩展](https://github.com/Chaoses-Ib/IbEverythingExt)
+- [IbEverythingExt: Everything 拼音搜索, ローマ字検索, wildcard, quick select, Shell extension](https://github.com/Chaoses-Ib/IbEverythingExt)

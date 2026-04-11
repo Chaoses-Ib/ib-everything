@@ -1,6 +1,10 @@
 /*!
 Everything's named pipe IPC interface, supported by Everything v1.5+.
 
+Compared to the [`wm`](crate::wm) IPC interface, this new pipe interface isn't quite great.
+So currently only [`get_folder_size()`](EverythingClient::get_folder_size) is implemented.
+If the need arises, other features can be added.
+
 [Everything 1.5 SDK - voidtools forum](https://www.voidtools.com/forum/viewtopic.php?t=15853)
 
 TODO: Batch IPC
@@ -86,6 +90,8 @@ pub struct Message {
 /// Client structure for IPC communication
 ///
 /// There can only be one client, you should drop this as early as possible.
+///
+/// See [`pipe`](super::pipe) for details.
 #[derive(Debug)]
 pub struct EverythingClient {
     mutex: Mutex<()>,

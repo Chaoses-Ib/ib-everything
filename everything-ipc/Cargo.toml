@@ -2,7 +2,7 @@
 name = "everything-ipc"
 version = "0.1.1"
 edition = "2024"
-description = "A Rust implementation of Everything's IPC SDK"
+description = "Rust port of voidtools' Everything's IPC SDK. Can be used to search user files quickly."
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true

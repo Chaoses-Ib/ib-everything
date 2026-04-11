@@ -237,6 +237,15 @@ impl EverythingIpcQuery2 {
 }
 
 /// A single query result item
+/**
+## APIs
+[`QueryItem`] only has data type APIs like [`get_str()`](Self::get_str()) instead of
+directly `get_filename()`, etc.
+This is mainly for symmetric APIs: in `query()` you need call `request_flags()` with needed [`RequestFlags`],
+requiring the same [`RequestFlags`] for getting the data will make the code symmetric and eaiser to read.
+
+A fully type-safe API may be added in the future if it won't blow up the compile time.
+*/
 pub struct QueryItem<'a> {
     request: RequestFlags,
     data: &'a [u8],
@@ -379,6 +388,9 @@ impl QueryItem<'_> {
 }
 
 /// Query results from Everything
+/**
+Internally, this is represented as an index array + an item stream.
+*/
 pub struct QueryList {
     id: u32,
     data: Box<[u8]>,

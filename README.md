@@ -1,7 +1,7 @@
 # ib-everything
 Rust/C++ port of voidtools' [Everything](https://www.voidtools.com/)'s IPC/plugin SDK.
 
-Can be used to search user files quickly.
+Can be used to search user files quickly on Windows.
 
 ## [everything-ipc](everything-ipc/README.md)
 [![crates.io](https://img.shields.io/crates/v/everything-ipc.svg)](https://crates.io/crates/everything-ipc)

@@ -1,8 +1,8 @@
 [package]
 name = "everything-ipc"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
-description = "Rust port of voidtools' Everything's IPC SDK. Can be used to search user files quickly."
+description = "Rust port of voidtools' Everything's IPC SDK. Can be used to search user files quickly on Windows."
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
@@ -66,6 +66,7 @@ test-log = { version = "0.2", default-features = false, features = ["color", "tr
 tokio = { version = "1", features = ["macros", "rt"] }
 
 [package.metadata.docs.rs]
+targets = ["x86_64-pc-windows-msvc"]
 # We want to document all features.
 all-features = true
 # Since this crate's feature setup is pretty complicated, it is worth opting

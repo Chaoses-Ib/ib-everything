@@ -1,6 +1,6 @@
 /*!
 Rust port of voidtools' Everything's IPC SDK.
-Can be used to search user files quickly.
+Can be used to search user files quickly on Windows.
 
 ## Features
 - Support both Everything v1.4 and v1.5, including Alpha version.

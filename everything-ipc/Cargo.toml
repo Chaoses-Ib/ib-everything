@@ -2,7 +2,7 @@
 name = "everything-ipc"
 version = "0.1.1"
 edition = "2024"
-description = "A Rust implementation of Everything's IPC SDK"
+description = "Rust port of voidtools' Everything's IPC SDK. Can be used to search user files quickly."
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
@@ -10,33 +10,59 @@ license.workspace = true
 keywords.workspace = true
 
 [features]
+default = [
+]
 
+## Tokio async runtime.
+## Required by async querying and Everything v1.5's [`pipe`] IPC interface.
+tokio = [
+    "dep:tokio",
+]
+
+## Folder-based batch IPC and cache.
+folder = [
+    "dep:rapidhash",
+]
 
 doc = ["dep:document-features"]
 
 [dependencies]
+bitflags = "2"
 bon = "3"
+derive_more = { version = "2", features = ["try_from"] }
 document-features = { version = "0.2", optional = true }
+rapidhash = { version = "4", optional = true }
 thiserror = "2"
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", optional = true, features = [
+    "sync",
+    "time",
+] }
 tracing = "0.1"
 widestring = "1"
 windows = { version = "0.62", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_Storage_FileSystem",
+    "Win32_System_DataExchange",
     "Win32_System_IO",
     "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
     "Win32_System_Memory",
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
 ] }
-windows-sys = { version = "0.59", features = [
-    "Win32_System_Threading",
-    "Win32_UI_WindowsAndMessaging"
-] }
+# windows-sys = { version = "0.59", features = [
+#     "Win32_System_Threading",
+#     "Win32_UI_WindowsAndMessaging"
+# ] }
 
 [dev-dependencies]
+everything-ipc = { path = ".", features = [
+    "tokio",
+    "folder",
+] }
+test-log = { version = "0.2", default-features = false, features = ["color", "trace", "unstable"] }
 tokio = { version = "1", features = ["macros", "rt"] }
 
 [package.metadata.docs.rs]

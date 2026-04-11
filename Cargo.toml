@@ -7,4 +7,4 @@ authors = ["Chaoses-Ib"]
 homepage = "https://github.com/Chaoses-Ib/IbEverythingLib"
 repository = "https://github.com/Chaoses-Ib/IbEverythingLib"
 license = "MIT"
-keywords = ["everything", "voidtools", "sdk", "plugin", "binding"]
+keywords = ["everything", "voidtools", "sdk", "plugin", "ipc"]

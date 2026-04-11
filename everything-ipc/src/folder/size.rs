@@ -177,6 +177,8 @@ pub fn get_folder_size(
 
                 return Ok(size);
             }
+            // Empty folder
+            return Ok(0);
         }
         Some(size) => return Ok(size),
         None => {

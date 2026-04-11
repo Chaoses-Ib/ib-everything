@@ -9,7 +9,7 @@ Folder size batch lookup and cache.
 - [`IbDOpusExt/ViewerPlugin/DOpusExt.cpp`](https://github.com/Chaoses-Ib/IbDOpusExt/blob/421397f1f73d49b1351ec6cebdf35a74dddb9019/ViewerPlugin/DOpusExt.cpp#L40-L113)
 */
 
-use std::{cell::UnsafeCell, fs, io, path::Path, time::Duration};
+use std::{cell::UnsafeCell, io, path::Path, time::Duration};
 
 use bon::builder;
 use rapidhash::{HashMapExt, RapidHashMap as HashMap};
@@ -18,7 +18,10 @@ use tracing::{debug, info, warn};
 use widestring::U16CString;
 use windows::{Win32::Storage::FileSystem::GetDiskFreeSpaceExW, core::PCWSTR};
 
-use crate::wm::{self, EverythingClient, RequestFlags, SearchFlags};
+use crate::{
+    search,
+    wm::{self, EverythingClient, RequestFlags, SearchFlags},
+};
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -60,6 +63,8 @@ pub fn get_folder_size(
     timeout: Option<Duration>,
     parent_max_size: Option<&mut u64>,
 ) -> Result<u64, Error> {
+    debug_assert_eq!(search::normalize_path_ev(path), path);
+
     // Get the parent directory
     let parent = match path.parent() {
         Some(p) if p.as_os_str().is_empty() => return Err(Error::RelativePath),
@@ -154,7 +159,7 @@ pub fn get_folder_size(
     }) {
         // If size is 0, try with realpath
         Some(0) => {
-            let realpath = fs::canonicalize(path)?;
+            let realpath = search::canonicalize_path_ev(path)?;
             if realpath != path {
                 debug!(?realpath);
                 // TODO: pipe?
@@ -221,5 +226,21 @@ mod tests {
         assert!(r.unwrap() > 0);
 
         assert_eq!(max_size, max_size2);
+    }
+
+    #[test_log::test]
+    #[test_log(default_log_filter = "trace")]
+    fn get_folder_size_ev_realpath() {
+        // Test realpath resolution: "C:\Documents and Settings" -> "C:\Users"
+        let r = get_folder_size(Path::new(r"C:\Documents and Settings"))
+            .call()
+            .unwrap();
+        dbg!(&r);
+        assert!(r > 0);
+
+        let r2 = get_folder_size(Path::new(r"C:\Users")).call().unwrap();
+        dbg!(&r2);
+        assert!(r2 > 0);
+        assert_eq!(r, r2);
     }
 }

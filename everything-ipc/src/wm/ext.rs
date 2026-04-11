@@ -3,7 +3,10 @@ use std::{path::Path, time::Duration};
 use bon::bon;
 use tracing::warn;
 
-use crate::wm::{EverythingClient, IpcError, RequestFlags};
+use crate::{
+    search,
+    wm::{EverythingClient, IpcError, RequestFlags},
+};
 
 #[bon]
 impl EverythingClient {
@@ -16,6 +19,7 @@ impl EverythingClient {
         #[builder(start_fn)] path: &Path,
         timeout: Option<Duration>,
     ) -> Result<u64, IpcError> {
+        debug_assert_eq!(search::normalize_path_ev(path), path);
         let search_query = format!(r#"wfn:"{}""#, path.display());
 
         let query_list = self

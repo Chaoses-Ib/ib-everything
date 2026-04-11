@@ -167,6 +167,14 @@ pub fn get_folder_size(
                     .get_folder_size(&realpath)
                     .maybe_timeout(timeout)
                     .call()?;
+
+                // Cache realpath size
+                RESULT_MAP.with(|cell| {
+                    // We got Some(0)
+                    let map = unsafe { &mut *cell.get() }.as_mut().unwrap();
+                    map.insert(filename, size);
+                });
+
                 return Ok(size);
             }
         }
@@ -237,6 +245,11 @@ mod tests {
             .unwrap();
         dbg!(&r);
         assert!(r > 0);
+        let r1 = get_folder_size(Path::new(r"C:\Documents and Settings"))
+            .call()
+            .unwrap();
+        dbg!(&r1);
+        assert_eq!(r, r1);
 
         let r2 = get_folder_size(Path::new(r"C:\Users")).call().unwrap();
         dbg!(&r2);

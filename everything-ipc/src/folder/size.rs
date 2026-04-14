@@ -54,6 +54,11 @@ thread_local! {
 ///   If `None`, uses the default timeout.
 /// - `parent_max_size`: Optional mutable reference to receive the maximum size of folders in the parent folder.
 ///
+///   You may also want to set `eager_get_links`.
+///
+/// - `eager_get_links`: If `true`, for folders in the parent folder with size 0,
+///   eagerly resolve symlinks/junctions and query the resolved path's size.
+///
 /// ## Returns
 /// - `Ok(u64)`: The size in bytes
 /// - `Err(Error)`: If the path is invalid
@@ -62,6 +67,7 @@ pub fn get_folder_size(
     #[builder(start_fn)] path: &Path,
     timeout: Option<Duration>,
     parent_max_size: Option<&mut u64>,
+    #[builder(default)] eager_get_links: bool,
 ) -> Result<u64, Error> {
     debug_assert_eq!(search::normalize_path_ev(path), path);
 
@@ -125,11 +131,35 @@ pub fn get_folder_size(
         // Build result map from query results
         let mut result_map = HashMap::with_capacity(query_list.len());
         for item in query_list.iter() {
-            if let (Some(filename), Some(file_size)) = (
+            if let (Some(filename), Some(mut file_size)) = (
                 item.get_str(RequestFlags::FileName),
                 item.get_size(RequestFlags::Size),
             ) {
                 let filename_str = filename.to_string_lossy();
+
+                // For folders with size 0, check if it's a symlink/junction when eager_get_links is true
+                if eager_get_links && file_size == 0 {
+                    let path = parent.join(&filename_str);
+                    match search::canonicalize_path_ev(&path) {
+                        // Resolve path is different, query for the resolved path size
+                        Ok(realpath) if realpath != path => {
+                            debug!(dir = filename_str, ?realpath);
+                            match everything
+                                .get_folder_size(&realpath)
+                                .maybe_timeout(timeout)
+                                .call()
+                            {
+                                Ok(size) => {
+                                    file_size = size;
+                                }
+                                e => warn!(?e, ?realpath, "query realpath failed"),
+                            }
+                        }
+                        Ok(_) => (),
+                        Err(e) => warn!(%e, ?path, "realpath failed"),
+                    }
+                }
+
                 result_map.insert(filename_str, file_size);
             }
         }
@@ -157,8 +187,12 @@ pub fn get_folder_size(
 
         map.and_then(|m| m.get(&filename)).copied()
     }) {
+        // Empty folder
+        Some(0) if eager_get_links => {
+            return Ok(0);
+        }
         // If size is 0, try with realpath
-        Some(0) => {
+        Some(0) if !eager_get_links => {
             let realpath = search::canonicalize_path_ev(path)?;
             if realpath != path {
                 debug!(?realpath);
@@ -255,6 +289,36 @@ mod tests {
 
         let r2 = get_folder_size(Path::new(r"C:\Users")).call().unwrap();
         dbg!(&r2);
+        assert!(r2 > 0);
+        assert_eq!(r, r2);
+    }
+
+    #[test_log::test]
+    #[test_log(default_log_filter = "trace")]
+    fn get_folder_size_ev_realpath_eager() {
+        // Test realpath resolution: "C:\Documents and Settings" -> "C:\Users"
+        let mut max_size: u64 = 0;
+        let r = get_folder_size(Path::new(r"C:\Documents and Settings"))
+            .parent_max_size(&mut max_size)
+            .eager_get_links(true)
+            .call()
+            .unwrap();
+        info!(r, max_size);
+        assert!(r > 0);
+        let r1 = get_folder_size(Path::new(r"C:\Documents and Settings"))
+            .parent_max_size(&mut max_size)
+            .eager_get_links(true)
+            .call()
+            .unwrap();
+        info!(r1, max_size);
+        assert_eq!(r, r1);
+
+        let r2 = get_folder_size(Path::new(r"C:\Users"))
+            .parent_max_size(&mut max_size)
+            .eager_get_links(true)
+            .call()
+            .unwrap();
+        info!(r2, max_size);
         assert!(r2 > 0);
         assert_eq!(r, r2);
     }

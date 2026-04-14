@@ -1,6 +1,6 @@
 [package]
 name = "everything-ipc"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "Rust port of voidtools' Everything's IPC SDK. Can be used to search user files quickly on Windows."
 authors.workspace = true
@@ -24,6 +24,9 @@ folder = [
     "dep:rapidhash",
 ]
 
+## PE file utilities.
+pe = ["dep:pelite"]
+
 doc = ["dep:document-features"]
 
 [dependencies]
@@ -31,6 +34,7 @@ bitflags = "2"
 bon = "3"
 derive_more = { version = "2", features = ["try_from"] }
 document-features = { version = "0.2", optional = true }
+pelite = { version = "0.10", optional = true }
 rapidhash = { version = "4", optional = true }
 thiserror = "2"
 tokio = { version = "1", optional = true, features = [
@@ -61,6 +65,7 @@ windows = { version = "0.62", features = [
 everything-ipc = { path = ".", features = [
     "tokio",
     "folder",
+    "pe",
 ] }
 test-log = { version = "0.2", default-features = false, features = ["color", "trace", "unstable"] }
 tokio = { version = "1", features = ["macros", "rt"] }

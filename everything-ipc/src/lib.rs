@@ -80,6 +80,8 @@ use crate::wm::{
 
 #[cfg(feature = "folder")]
 pub mod folder;
+#[cfg(feature = "pe")]
+pub mod pe;
 #[cfg(feature = "tokio")]
 pub mod pipe;
 pub mod search;
@@ -283,6 +285,16 @@ impl Version {
             revision,
             build,
         }
+    }
+
+    /// Convert the version to a tuple of `(major, minor, revision, build)`.
+    pub fn tuple(&self) -> (u32, u32, u32, u32) {
+        (self.major, self.minor, self.revision, self.build)
+    }
+
+    /// Is Everything 1.5 and above.
+    pub fn ge_15(&self) -> bool {
+        self.tuple() >= (1, 5, 0, 0)
     }
 }
 

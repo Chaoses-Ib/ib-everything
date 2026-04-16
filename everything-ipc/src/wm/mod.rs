@@ -51,28 +51,26 @@ Total: 5742 items
 */
 use std::{
     mem,
-    sync::{Arc, Once, atomic, mpsc},
+    sync::{Arc, atomic, mpsc},
     time::Duration,
 };
 
 use bon::bon;
 use tracing::{debug, error, instrument, trace, warn};
-use widestring::u16cstr;
-use windows::{
-    Win32::{
-        Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM},
-        System::DataExchange::COPYDATASTRUCT,
-        UI::WindowsAndMessaging::{
-            CreateWindowExW, DefWindowProcW, DispatchMessageW, GWL_USERDATA, GetMessageW,
-            GetWindowLongPtrW, MSG, PostMessageW, RegisterClassW, ReplyMessage, SendMessageW,
+use windows::Win32::{
+    Foundation::{HWND, LPARAM, LRESULT, WPARAM},
+    System::DataExchange::COPYDATASTRUCT,
+    UI::{
+        Controls::WC_STATIC,
+        WindowsAndMessaging::{
+            CreateWindowExW, DefWindowProcW, DispatchMessageW, GWL_USERDATA, GWLP_WNDPROC,
+            GetMessageW, GetWindowLongPtrW, MSG, PostMessageW, ReplyMessage, SendMessageW,
             SetWindowLongPtrW, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_COPYDATA, WM_QUIT,
-            WNDCLASSW,
         },
     },
-    core::PCWSTR,
 };
 
-use crate::{IpcWindow, windows::get_current_module_handle};
+use crate::IpcWindow;
 
 mod types;
 pub use types::*;
@@ -103,6 +101,7 @@ pub enum IpcError {
 
 // ==================== Reply Window ====================
 
+/*
 /// Window class name for Everything IPC reply windows
 const WINDOW_CLASS_NAME: &widestring::U16CStr = u16cstr!("everything_ipc::wm");
 
@@ -137,6 +136,7 @@ fn register_window_class() {
         }
     });
 }
+*/
 
 /// A hidden reply window that receives query responses from Everything
 #[derive(Debug)]
@@ -166,9 +166,11 @@ struct MessageLoopResult {
 impl ReplyWindow {
     /// Create a new reply window - creates the window in the message loop thread
     pub fn new(inner_ptr: *mut ClientInner) -> Result<Self, IpcError> {
+        /*
         // Register the window class (once per process)
         // This must be called before creating any windows
         register_window_class();
+        */
 
         // Create a channel to receive the window handle from the message loop thread
         let (tx, rx) = mpsc::channel::<MessageLoopResult>();
@@ -183,7 +185,8 @@ impl ReplyWindow {
             let hwnd = unsafe {
                 CreateWindowExW(
                     WINDOW_EX_STYLE(0),
-                    PCWSTR(WINDOW_CLASS_NAME.as_ptr()),
+                    // PCWSTR(WINDOW_CLASS_NAME.as_ptr()),
+                    WC_STATIC,
                     None,
                     WINDOW_STYLE(0),
                     0,
@@ -192,7 +195,8 @@ impl ReplyWindow {
                     0,
                     None,
                     None,
-                    Some(HINSTANCE::default()),
+                    // Some(HINSTANCE::default()),
+                    None,
                     None,
                 )
             };
@@ -218,6 +222,14 @@ impl ReplyWindow {
 
             // Set GWL_USERDATA to the EverythingInner pointer
             unsafe { SetWindowLongPtrW(hwnd, GWL_USERDATA, inner_ptr_usize as isize) };
+
+            unsafe {
+                SetWindowLongPtrW(
+                    hwnd,
+                    GWLP_WNDPROC,
+                    reply_window_wndproc as *const () as isize,
+                )
+            };
 
             // Run the message loop
             run_message_loop(hwnd);

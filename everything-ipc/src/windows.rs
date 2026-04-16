@@ -1,14 +1,6 @@
-use windows::{
-    Win32::{
-        Foundation::{HANDLE, HMODULE},
-        System::LibraryLoader::{
-            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            GetModuleHandleExW,
-        },
-    },
-    core::{Free, PCWSTR},
-};
+use windows::{Win32::Foundation::HANDLE, core::Free};
 
+/*
 /// Get the handle of the current executable or DLL.
 ///
 /// Ref: https://github.com/compio-rs/winio/issues/35
@@ -23,6 +15,7 @@ pub fn get_current_module_handle() -> HMODULE {
     };
     module
 }
+*/
 
 /// A Windows handle wrapper
 ///

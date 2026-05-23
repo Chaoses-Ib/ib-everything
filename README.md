@@ -32,7 +32,7 @@ let list = everything
     .query_wait(r"C:\Windows\ *.exe")
     .request_flags(RequestFlags::FileName | RequestFlags::Size | RequestFlags::Path)
     .sort(Sort::SizeDescending)
-    .max_results(10)
+    .max_results(5)
     .call()
     .expect("query");
 
@@ -132,6 +132,7 @@ A C++17 implementation of [Everything](https://www.voidtools.com/)'s (IPC) SDK.
 ### Projects using this library
 - [ib-shell: Some desktop environment libraries, mainly for Windows Shell](https://github.com/Chaoses-Ib/ib-shell)
 - [IbDOpusExt: An extension for Directory Opus.](https://github.com/Chaoses-Ib/IbDOpusExt)
+- [Onin: The extensible, command-centric launcher for pro users.](https://github.com/Onin-app/Onin)
 
 ### Everything plugins using this library
 - [IbEverythingExt: Everything 拼音搜索, ローマ字検索, wildcard, quick select, Shell extension](https://github.com/Chaoses-Ib/IbEverythingExt)

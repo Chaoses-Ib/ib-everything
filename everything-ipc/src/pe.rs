@@ -1,5 +1,9 @@
 /*!
 PE file utilities.
+
+APIs:
+- [`Version::from_exe()`]
+  - [`Version::from_current_exe()`]
 */
 
 use std::{io, path::Path};

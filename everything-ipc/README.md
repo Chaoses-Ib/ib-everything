@@ -28,7 +28,7 @@ let list = everything
     .query_wait(r"C:\Windows\ *.exe")
     .request_flags(RequestFlags::FileName | RequestFlags::Size | RequestFlags::Path)
     .sort(Sort::SizeDescending)
-    .max_results(10)
+    .max_results(5)
     .call()
     .expect("query");
 

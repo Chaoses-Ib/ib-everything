@@ -51,7 +51,7 @@ Total: 5742 items
 */
 use std::{
     mem,
-    sync::{Arc, atomic, mpsc},
+    sync::{atomic, mpsc},
     time::Duration,
 };
 
@@ -165,7 +165,7 @@ struct MessageLoopResult {
 
 impl ReplyWindow {
     /// Create a new reply window - creates the window in the message loop thread
-    pub fn new(inner_ptr: *mut ClientInner) -> Result<Self, IpcError> {
+    pub fn new(inner: Box<ClientInner>) -> Result<Self, IpcError> {
         /*
         // Register the window class (once per process)
         // This must be called before creating any windows
@@ -176,7 +176,7 @@ impl ReplyWindow {
         let (tx, rx) = mpsc::channel::<MessageLoopResult>();
 
         // Store the inner pointer for use in the message loop thread
-        let inner_ptr_usize = inner_ptr as usize;
+        // let inner_ptr_usize = inner_ptr as usize;
 
         // Start the message loop in a separate thread
         // The window class must be registered in the same thread where windows are created
@@ -221,7 +221,8 @@ impl ReplyWindow {
             debug!(?hwnd, "Created reply window");
 
             // Set GWL_USERDATA to the EverythingInner pointer
-            unsafe { SetWindowLongPtrW(hwnd, GWL_USERDATA, inner_ptr_usize as isize) };
+            let inner_ptr = Box::into_raw(inner);
+            unsafe { SetWindowLongPtrW(hwnd, GWL_USERDATA, inner_ptr as isize) };
 
             unsafe {
                 SetWindowLongPtrW(
@@ -338,7 +339,7 @@ unsafe extern "system" fn reply_window_wndproc(
                     warn!(?ipc_hwnd, ?r);
                     // Drop the current query sender since the message failed to send
                     // This will cause the query to Err on the client side
-                    drop(inner.current_query_sender.lock().unwrap().take());
+                    drop(inner.take_current_query_sender());
                 }
             }
 
@@ -362,7 +363,7 @@ unsafe extern "system" fn reply_window_wndproc(
 
             // Get the sender from the inner struct
             let inner = unsafe { &*inner_ptr };
-            if let Some(sender) = inner.current_query_sender.lock().unwrap().take() {
+            if let Some(sender) = inner.take_current_query_sender() {
                 if match &sender {
                     QuerySender::Sync(_sender) => {
                         // TODO: https://github.com/rust-lang/rust/issues/153668
@@ -426,6 +427,12 @@ fn run_message_loop(hwnd: HWND) {
             DispatchMessageW(&mut msg);
         }
     }
+
+    // Cleanup
+    let inner_ptr = unsafe { GetWindowLongPtrW(hwnd, GWL_USERDATA) };
+    if inner_ptr != 0 {
+        drop(unsafe { Box::from_raw(inner_ptr as *mut ClientInner) });
+    }
 }
 
 /// Wrapper for query senders (both sync and async)
@@ -443,28 +450,50 @@ struct ClientInner {
     current_query_sender: std::sync::Mutex<Option<QuerySender>>,
 }
 
+impl ClientInner {
+    /// Safe guard to mitigate possible `PoisonError` panics.
+    pub fn take_current_query_sender(&self) -> Option<QuerySender> {
+        match self.current_query_sender.lock() {
+            Ok(mut sender) => sender.take(),
+            #[cfg(debug_assertions)]
+            Err(e) => Err(e).unwrap(),
+            #[cfg(not(debug_assertions))]
+            Err(e) => {
+                error!("poison");
+                // self.current_query_sender.clear_poison();
+                // e.into_inner()
+                None
+            }
+        }
+    }
+}
+
 /**
 Everything IPC client
 
 See [`wm`](super::wm) for details.
 */
 pub struct EverythingClient {
-    inner: Arc<ClientInner>,
+    /// Owned by [`ReplyWindow`] to avoid possible UAF of [`ClientInner`] after drop.
+    inner: &'static ClientInner,
     reply_window: ReplyWindow,
 }
 
 impl IpcWindow {
     pub fn wm_client(&self) -> Result<EverythingClient, IpcError> {
         // Create the inner state
-        let inner = Arc::new(ClientInner {
+        let inner = Box::new(ClientInner {
             ipc_window: self.clone(),
             current_query_sender: std::sync::Mutex::new(None),
         });
+        let inner_ref: &ClientInner = inner.as_ref();
+        let inner_ref: &'static ClientInner = unsafe { mem::transmute(inner_ref) };
 
         // Create the reply window with a pointer to the inner state
-        let inner_ptr = Arc::as_ptr(&inner) as *mut ClientInner;
-        let reply_window = ReplyWindow::new(inner_ptr)?;
+        // let inner_ptr = Arc::as_ptr(&inner) as *mut ClientInner;
+        let reply_window = ReplyWindow::new(inner)?;
 
+        let inner = inner_ref;
         Ok(EverythingClient {
             inner,
             reply_window,

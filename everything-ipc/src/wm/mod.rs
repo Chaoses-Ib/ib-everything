@@ -144,7 +144,7 @@ struct ReplyWindow {
     hwnd: HWND,
     // The thread handle is Send because we only use it to join the thread
     // This is safe because we only join the thread in Drop
-    _thread: std::thread::JoinHandle<()>,
+    _thread: mem::MaybeUninit<std::thread::JoinHandle<()>>,
 }
 
 // SAFETY: The JoinHandle is only used to join the thread in Drop.
@@ -247,7 +247,7 @@ impl ReplyWindow {
 
         Ok(Self {
             hwnd,
-            _thread: thread,
+            _thread: mem::MaybeUninit::new(thread),
         })
     }
 
@@ -267,6 +267,8 @@ impl ReplyWindow {
     }
 
     /// Post `WM_QUIT` to the reply window to signal the message loop to exit
+    ///
+    /// `WM_CLOSE` works too, but not `DestroyWindow()`.
     pub fn quit(&self) {
         let _ = self.post_message(WM_QUIT, WPARAM(0), LPARAM(0));
     }
@@ -278,10 +280,13 @@ impl Drop for ReplyWindow {
         // can process the quit message
         self.quit();
 
+        let _thread = unsafe { self._thread.assume_init_read() };
         // Join the message loop thread if it exists
         // if let Some(handle) = self.thread.take() {
         //     let _ = handle.join();
         // }
+        #[cfg(feature = "drop-join-thread")]
+        let _ = _thread.join();
     }
 }
 
@@ -300,6 +305,7 @@ unsafe extern "system" fn reply_window_wndproc(
     w_param: WPARAM,
     l_param: LPARAM,
 ) -> LRESULT {
+    // dbg!(hwnd, msg, w_param, l_param);
     match msg {
         // Forward the request data to the IPC window
         WM_APP => {

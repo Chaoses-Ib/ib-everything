@@ -43,6 +43,7 @@ pub enum Error {
     Ipc(#[from] wm::IpcError),
 }
 
+#[cfg(any(doc, not(feature = "drop-join-thread")))]
 thread_local! {
     static CLIENT: UnsafeCell<FolderSizeClient> = const { UnsafeCell::new(FolderSizeClient::new()) };
 }
@@ -67,6 +68,7 @@ thread_local! {
 /// ## Returns
 /// - `Ok(u64)`: The size in bytes
 /// - `Err(Error)`: If the path is invalid
+#[cfg(any(doc, not(feature = "drop-join-thread")))]
 #[builder]
 pub fn get_folder_size(
     #[builder(start_fn)] path: &Path,
@@ -267,6 +269,7 @@ impl FolderSizeClient {
     }
 }
 
+#[cfg(not(feature = "drop-join-thread"))]
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -27,6 +27,15 @@ folder = [
 ## PE file utilities.
 pe = ["dep:pelite"]
 
+## When dropping [`wm::EverythingClient`], wait for the message thread to exit.
+## 
+## By default, [`wm::EverythingClient::drop()`] won't wait for the message thread.
+## This is usually fine, but in some cases you may want to make sure it exited,
+## like before unloading your DLL, you can enable this feature instead.
+##
+## However, this will cause thread-local clients to deadlock on drop.
+drop-join-thread = []
+
 doc = ["dep:document-features"]
 
 [dependencies]
@@ -67,6 +76,7 @@ everything-ipc = { path = ".", features = [
     "tokio",
     "folder",
     "pe",
+    # "drop-join-thread",
 ] }
 test-log = { version = "0.2", default-features = false, features = ["color", "trace", "unstable"] }
 tokio = { version = "1", features = ["macros", "rt"] }

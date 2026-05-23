@@ -18,6 +18,8 @@ Can be used to search user files quickly on Windows.
 - [`search`]: Search text generating utilities.
 - [`folder`]: Folder-based batch IPC and cache.
 
+All client types ([`IpcWindow`] and `EverythingClient`) are `Send + Sync`.
+
 ## Examples
 ```no_run
 // cargo add everything-ipc
@@ -133,6 +135,9 @@ pub struct IpcWindow {
     hwnd: HWND,
     class_name: String,
 }
+
+unsafe impl Send for IpcWindow {}
+unsafe impl Sync for IpcWindow {}
 
 impl IpcWindow {
     /// Find an [`IpcWindow`] by trying common instance names.

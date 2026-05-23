@@ -27,6 +27,9 @@ pub struct Handle {
     inner: HANDLE,
 }
 
+unsafe impl Send for Handle {}
+unsafe impl Sync for Handle {}
+
 impl Handle {
     pub fn new(handle: HANDLE) -> Self {
         Handle { inner: handle }

@@ -2,16 +2,21 @@
 Folder size batch lookup and cache.
 
 - Batch lookup of all folder sizes in the parent folder.
-- Thread-local cache.
+- Thread-local cache with [`get_folder_size()`].
 - For drivers (like `C:\`), it uses Windows API directly.
 
 ## References
 - [`IbDOpusExt/ViewerPlugin/DOpusExt.cpp`](https://github.com/Chaoses-Ib/IbDOpusExt/blob/421397f1f73d49b1351ec6cebdf35a74dddb9019/ViewerPlugin/DOpusExt.cpp#L40-L113)
 */
 
-use std::{cell::UnsafeCell, io, path::Path, time::Duration};
+use std::{
+    cell::UnsafeCell,
+    io,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
-use bon::builder;
+use bon::{bon, builder};
 use rapidhash::{HashMapExt, RapidHashMap as HashMap};
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -39,12 +44,12 @@ pub enum Error {
 }
 
 thread_local! {
-    static EVERYTHING: UnsafeCell<Option<EverythingClient>> = const { UnsafeCell::new(None) };
-    static LAST_PARENT: UnsafeCell<std::path::PathBuf> = const { UnsafeCell::new(std::path::PathBuf::new()) };
-    static RESULT_MAP: UnsafeCell<Option<HashMap<String, u64>>> = const { UnsafeCell::new(None) };
+    static CLIENT: UnsafeCell<FolderSizeClient> = const { UnsafeCell::new(FolderSizeClient::new()) };
 }
 
 /// Get the size of a folder.
+///
+/// Uses a thread-local [`FolderSizeClient`] for caching.
 ///
 /// See [`folder::size`](super::size) for details.
 ///
@@ -69,162 +74,197 @@ pub fn get_folder_size(
     parent_max_size: Option<&mut u64>,
     #[builder(default)] eager_get_links: bool,
 ) -> Result<u64, Error> {
-    debug_assert_eq!(search::normalize_path_ev(path), path);
-
-    // Get the parent directory
-    let parent = match path.parent() {
-        Some(p) if p.as_os_str().is_empty() => return Err(Error::RelativePath),
-        Some(p) => p,
-        None => {
-            // Handle 3-character paths (e.g., "C:\")
-            if path.as_os_str().len() == 3 {
-                let path_u16 = U16CString::from_os_str(path).unwrap();
-                let mut size = 0u64;
-                if unsafe {
-                    GetDiskFreeSpaceExW(PCWSTR(path_u16.as_ptr()), None, Some(&mut size), None)
-                }
-                .is_ok()
-                {
-                    return Ok(size);
-                }
-            }
-            return Err(Error::RelativePath);
-        }
-    };
-
-    // Get or create the Everything client for this thread
-    let everything = EVERYTHING.with(|cell| -> Result<&EverythingClient, wm::IpcError> {
-        let opt = unsafe { &mut *cell.get() };
-        if opt.is_none() {
-            *opt = Some(EverythingClient::new()?);
-        }
-        Ok(&*opt.as_ref().unwrap())
-    })?;
-
-    // Check if we need to query for a new parent
-    let needs_query = LAST_PARENT.with(|cell| unsafe {
-        let last_path = &mut *cell.get();
-        last_path != parent
-    });
-
-    if needs_query {
-        // Clear and rebuild cache for new parent
-        LAST_PARENT.with(|cell| unsafe {
-            *cell.get() = parent.to_path_buf();
-        });
-
-        RESULT_MAP.with(|cell| unsafe {
-            *cell.get() = None;
-        });
-
-        // Query Everything for files in the folder
-        let search_query = format!(r#"folder:infolder:"{}""#, parent.display());
-        let query_list = everything
-            .query_wait(&search_query)
-            .search_flags(SearchFlags::empty())
-            .request_flags(RequestFlags::FileName | RequestFlags::Size)
+    CLIENT.with(|cell| {
+        let client = unsafe { &mut *cell.get() };
+        client
+            .get_folder_size(path)
             .maybe_timeout(timeout)
+            .maybe_parent_max_size(parent_max_size)
+            .eager_get_links(eager_get_links)
             .call()
-            .inspect_err(|e| warn!(%e, ?parent, "query failed"))?;
-        info!(len = query_list.len(), "query");
+    })
+}
 
-        // Build result map from query results
-        let mut result_map = HashMap::with_capacity(query_list.len());
-        for item in query_list.iter() {
-            if let (Some(filename), Some(mut file_size)) = (
-                item.get_str(RequestFlags::FileName),
-                item.get_size(RequestFlags::Size),
-            ) {
-                let filename_str = filename.to_string_lossy();
+/// Folder size client with parent directory cache.
+#[derive(Default)]
+pub struct FolderSizeClient {
+    everything: Option<EverythingClient>,
+    last_parent: PathBuf,
+    /// `HashMap::new()` is not const.
+    result_map: Option<HashMap<String, u64>>,
+}
 
-                // For folders with size 0, check if it's a symlink/junction when eager_get_links is true
-                if eager_get_links && file_size == 0 {
-                    let path = parent.join(&filename_str);
-                    match search::canonicalize_path_ev(&path) {
-                        // Resolve path is different, query for the resolved path size
-                        Ok(realpath) if realpath != path => {
-                            debug!(dir = filename_str, ?realpath);
-                            match everything
-                                .get_folder_size(&realpath)
-                                .maybe_timeout(timeout)
-                                .call()
-                            {
-                                Ok(size) => {
-                                    file_size = size;
-                                }
-                                e => warn!(?e, ?realpath, "query realpath failed"),
-                            }
-                        }
-                        Ok(_) => (),
-                        Err(e) => warn!(%e, ?path, "realpath failed"),
+#[bon]
+impl FolderSizeClient {
+    pub const fn new() -> Self {
+        Self {
+            everything: None,
+            last_parent: PathBuf::new(),
+            result_map: None,
+        }
+    }
+
+    /// Get the size of a folder.
+    ///
+    /// See [`folder::size`](super::size) for details.
+    ///
+    /// ## Arguments
+    /// - `path`: An absolute path to a folder
+    /// - `timeout`: Optional timeout for IPC queries.
+    ///   If `None`, uses the default timeout.
+    /// - `parent_max_size`: Optional mutable reference to receive the maximum size of folders in the parent folder.
+    ///
+    ///   You may also want to set `eager_get_links`.
+    ///
+    /// - `eager_get_links`: If `true`, for folders in the parent folder with size 0,
+    ///   eagerly resolve symlinks/junctions and query the resolved path's size.
+    ///
+    /// ## Returns
+    /// - `Ok(u64)`: The size in bytes
+    /// - `Err(Error)`: If the path is invalid
+    #[builder]
+    pub fn get_folder_size(
+        &mut self,
+        #[builder(start_fn)] path: &Path,
+        timeout: Option<Duration>,
+        parent_max_size: Option<&mut u64>,
+        #[builder(default)] eager_get_links: bool,
+    ) -> Result<u64, Error> {
+        debug_assert_eq!(search::normalize_path_ev(path), path);
+
+        // Get the parent directory
+        let parent = match path.parent() {
+            Some(p) if p.as_os_str().is_empty() => return Err(Error::RelativePath),
+            Some(p) => p,
+            None => {
+                // Handle 3-character paths (e.g., "C:\")
+                if path.as_os_str().len() == 3 {
+                    let path_u16 = U16CString::from_os_str(path).unwrap();
+                    let mut size = 0u64;
+                    if unsafe {
+                        GetDiskFreeSpaceExW(PCWSTR(path_u16.as_ptr()), None, Some(&mut size), None)
+                    }
+                    .is_ok()
+                    {
+                        return Ok(size);
                     }
                 }
-
-                result_map.insert(filename_str, file_size);
+                return Err(Error::RelativePath);
             }
-        }
-        RESULT_MAP.with(|cell| unsafe {
-            *cell.get() = Some(result_map);
-        });
-    }
+        };
 
-    // Look up the file in the result map
-    // Or PathFindFileNameW()
-    let filename = path
-        .file_name()
-        .and_then(|f| f.to_str())
-        .ok_or(Error::RelativePath)?
-        .to_string();
+        // Get or create the Everything client
+        // TODO: get_or_try_insert_with()
+        let everything = match self.everything.as_mut() {
+            Some(everything) => everything,
+            None => self.everything.insert(EverythingClient::new()?),
+        };
 
-    match RESULT_MAP.with(|cell| {
-        let map = unsafe { &*cell.get() }.as_ref();
+        // Check if we need to query for a new parent
+        let needs_query = self.last_parent != parent;
 
-        if let Some(max_size) = parent_max_size {
-            *max_size = map
-                .and_then(|m| m.values().max().copied())
-                .unwrap_or_default();
-        }
+        if needs_query {
+            // Clear and rebuild cache for new parent
+            self.last_parent = parent.to_path_buf();
+            self.result_map = None;
 
-        map.and_then(|m| m.get(&filename)).copied()
-    }) {
-        // Empty folder
-        Some(0) if eager_get_links => {
-            return Ok(0);
-        }
-        // If size is 0, try with realpath
-        Some(0) if !eager_get_links => {
-            let realpath = search::canonicalize_path_ev(path)?;
-            if realpath != path {
-                debug!(?realpath);
-                // TODO: pipe?
-                let size = everything
-                    .get_folder_size(&realpath)
-                    .maybe_timeout(timeout)
-                    .call()?;
+            // Query Everything for files in the folder
+            let search_query = format!(r#"folder:infolder:"{}""#, parent.display());
+            let query_list = everything
+                .query_wait(&search_query)
+                .search_flags(SearchFlags::empty())
+                .request_flags(RequestFlags::FileName | RequestFlags::Size)
+                .maybe_timeout(timeout)
+                .call()
+                .inspect_err(|e| warn!(%e, ?parent, "query failed"))?;
+            info!(len = query_list.len(), "query");
 
-                // Cache realpath size
-                RESULT_MAP.with(|cell| {
-                    // We got Some(0)
-                    let map = unsafe { &mut *cell.get() }.as_mut().unwrap();
-                    map.insert(filename, size);
-                });
+            // Build result map from query results
+            let mut result_map = HashMap::with_capacity(query_list.len());
+            for item in query_list.iter() {
+                if let (Some(filename), Some(mut file_size)) = (
+                    item.get_str(RequestFlags::FileName),
+                    item.get_size(RequestFlags::Size),
+                ) {
+                    let filename_str = filename.to_string_lossy();
 
-                return Ok(size);
+                    // For folders with size 0, check if it's a symlink/junction when eager_get_links is true
+                    if eager_get_links && file_size == 0 {
+                        let path = parent.join(&filename_str);
+                        match search::canonicalize_path_ev(&path) {
+                            // Resolve path is different, query for the resolved path size
+                            Ok(realpath) if realpath != path => {
+                                debug!(dir = filename_str, ?realpath);
+                                match everything
+                                    .get_folder_size(&realpath)
+                                    .maybe_timeout(timeout)
+                                    .call()
+                                {
+                                    Ok(size) => {
+                                        file_size = size;
+                                    }
+                                    e => warn!(?e, ?realpath, "query realpath failed"),
+                                }
+                            }
+                            Ok(_) => (),
+                            Err(e) => warn!(%e, ?path, "realpath failed"),
+                        }
+                    }
+
+                    result_map.insert(filename_str, file_size);
+                }
             }
+            self.result_map = Some(result_map);
+        }
+
+        // Look up the file in the result map
+        // Or PathFindFileNameW()
+        let filename = path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .ok_or(Error::RelativePath)?
+            .to_string();
+
+        match self.result_map.as_ref().and_then(|m| {
+            if let Some(max_size) = parent_max_size {
+                *max_size = m.values().max().copied().unwrap_or_default();
+            }
+
+            m.get(&filename).copied()
+        }) {
             // Empty folder
-            return Ok(0);
-        }
-        Some(size) => return Ok(size),
-        None => {
-            RESULT_MAP.with(|cell| {
-                let map = unsafe { &*cell.get() };
-                debug!(filename, ?map);
-            });
-        }
-    }
+            Some(0) if eager_get_links => {
+                return Ok(0);
+            }
+            // If size is 0, try with realpath
+            Some(0) if !eager_get_links => {
+                let realpath = search::canonicalize_path_ev(path)?;
+                if realpath != path {
+                    debug!(?realpath);
+                    // TODO: pipe?
+                    let size = everything
+                        .get_folder_size(&realpath)
+                        .maybe_timeout(timeout)
+                        .call()?;
 
-    // TODO: May be new folder
-    Err(Error::NotFound)
+                    // Cache realpath size
+                    // We got Some(0)
+                    self.result_map.as_mut().unwrap().insert(filename, size);
+
+                    return Ok(size);
+                }
+                // Empty folder
+                return Ok(0);
+            }
+            Some(size) => return Ok(size),
+            None => {
+                debug!(filename, map = ?self.result_map);
+            }
+        }
+
+        // TODO: May be new folder
+        Err(Error::NotFound)
+    }
 }
 
 #[cfg(test)]

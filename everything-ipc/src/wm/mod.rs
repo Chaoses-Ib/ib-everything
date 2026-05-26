@@ -51,7 +51,7 @@ Total: 5742 items
 */
 use std::{
     mem,
-    sync::{atomic, mpsc},
+    sync::{Arc, atomic, mpsc},
     time::Duration,
 };
 
@@ -72,6 +72,7 @@ use windows::Win32::{
 
 use crate::IpcWindow;
 
+mod shared;
 mod types;
 pub use types::*;
 mod ext;
@@ -144,7 +145,8 @@ struct ReplyWindow {
     hwnd: HWND,
     // The thread handle is Send because we only use it to join the thread
     // This is safe because we only join the thread in Drop
-    _thread: mem::MaybeUninit<std::thread::JoinHandle<()>>,
+    /// `mem::MaybeUninit` would be enough if we don't need `quit_join_thread()`.
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 // SAFETY: The JoinHandle is only used to join the thread in Drop.
@@ -165,7 +167,9 @@ struct MessageLoopResult {
 
 impl ReplyWindow {
     /// Create a new reply window - creates the window in the message loop thread
-    pub fn new(inner: Box<ClientInner>) -> Result<Self, IpcError> {
+    ///
+    /// `Box` would be enough if we don't need `quit_join_thread()`.
+    pub fn new(inner: Arc<ClientInner>) -> Result<Self, IpcError> {
         /*
         // Register the window class (once per process)
         // This must be called before creating any windows
@@ -221,7 +225,7 @@ impl ReplyWindow {
             debug!(?hwnd, "Created reply window");
 
             // Set GWL_USERDATA to the EverythingInner pointer
-            let inner_ptr = Box::into_raw(inner);
+            let inner_ptr = Arc::into_raw(inner);
             unsafe { SetWindowLongPtrW(hwnd, GWL_USERDATA, inner_ptr as isize) };
 
             unsafe {
@@ -247,7 +251,8 @@ impl ReplyWindow {
 
         Ok(Self {
             hwnd,
-            _thread: mem::MaybeUninit::new(thread),
+            // _thread: mem::MaybeUninit::new(thread),
+            thread: Some(thread),
         })
     }
 
@@ -272,6 +277,13 @@ impl ReplyWindow {
     pub fn quit(&self) {
         let _ = self.post_message(WM_QUIT, WPARAM(0), LPARAM(0));
     }
+
+    pub fn quit_join_thread(&mut self) {
+        if let Some(thread) = self.thread.take() {
+            self.quit();
+            _ = thread.join();
+        }
+    }
 }
 
 impl Drop for ReplyWindow {
@@ -280,6 +292,7 @@ impl Drop for ReplyWindow {
         // can process the quit message
         self.quit();
 
+        /*
         let _thread = unsafe { self._thread.assume_init_read() };
         // Join the message loop thread if it exists
         // if let Some(handle) = self.thread.take() {
@@ -287,6 +300,11 @@ impl Drop for ReplyWindow {
         // }
         #[cfg(feature = "drop-join-thread")]
         let _ = _thread.join();
+        */
+        #[cfg(feature = "drop-join-thread")]
+        if let Some(thread) = self.thread.take() {
+            _ = thread.join();
+        }
     }
 }
 
@@ -437,7 +455,7 @@ fn run_message_loop(hwnd: HWND) {
     // Cleanup
     let inner_ptr = unsafe { GetWindowLongPtrW(hwnd, GWL_USERDATA) };
     if inner_ptr != 0 {
-        drop(unsafe { Box::from_raw(inner_ptr as *mut ClientInner) });
+        drop(unsafe { Arc::from_raw(inner_ptr as *mut ClientInner) });
     }
 }
 
@@ -448,12 +466,22 @@ enum QuerySender {
     Tokio(tokio::sync::oneshot::Sender<QueryList>),
 }
 
+#[cfg(not(feature = "tokio"))]
+type QueryLock = std::sync::Mutex<()>;
+#[cfg(feature = "tokio")]
+type QueryLock = tokio::sync::Mutex<()>;
+
 /// Inner state shared by Everything
 struct ClientInner {
     ipc_window: IpcWindow,
     /// The sender for the current (last) query
     /// Using Mutex for thread-safe mutable access
     current_query_sender: std::sync::Mutex<Option<QuerySender>>,
+
+    /// For `query_wait()` from multi threads.
+    ///
+    /// TODO: Single thread version without this?
+    query_lock: QueryLock,
 }
 
 impl ClientInner {
@@ -481,25 +509,28 @@ See [`wm`](super::wm) for details.
 */
 pub struct EverythingClient {
     /// Owned by [`ReplyWindow`] to avoid possible UAF of [`ClientInner`] after drop.
-    inner: &'static ClientInner,
+    inner: Arc<ClientInner>,
     reply_window: ReplyWindow,
 }
 
 impl IpcWindow {
     pub fn wm_client(&self) -> Result<EverythingClient, IpcError> {
         // Create the inner state
-        let inner = Box::new(ClientInner {
+        let inner = Arc::new(ClientInner {
             ipc_window: self.clone(),
             current_query_sender: std::sync::Mutex::new(None),
+            query_lock: Default::default(),
         });
+        /*
         let inner_ref: &ClientInner = inner.as_ref();
         let inner_ref: &'static ClientInner = unsafe { mem::transmute(inner_ref) };
+        */
 
         // Create the reply window with a pointer to the inner state
         // let inner_ptr = Arc::as_ptr(&inner) as *mut ClientInner;
-        let reply_window = ReplyWindow::new(inner)?;
+        let reply_window = ReplyWindow::new(inner.clone())?;
 
-        let inner = inner_ref;
+        // let inner = inner_ref;
         Ok(EverythingClient {
             inner,
             reply_window,
@@ -633,6 +664,7 @@ impl EverythingClient {
         #[builder(default)] sort: Sort,
         #[builder(default)] offset: u32,
         max_results: Option<u32>,
+        // #[builder(setters(vis = ""))] current_query_sender: Option<&mut Option<QuerySender>>,
     ) -> Result<mpsc::Receiver<QueryList>, IpcError> {
         let id = self.next_id();
         debug!("generating query ID {}", id);
@@ -659,6 +691,17 @@ impl EverythingClient {
 
         // Store the sender (only one query at a time per Everything instance)
         // Using Mutex for thread-safe mutable access
+        /*
+        let old_sender = match current_query_sender {
+            Some(current_query_sender) => current_query_sender.replace(QuerySender::Sync(sender)),
+            None => self
+                .inner
+                .current_query_sender
+                .lock()
+                .unwrap()
+                .replace(QuerySender::Sync(sender)),
+        };
+        */
         let old_sender = self
             .inner
             .current_query_sender
@@ -687,6 +730,12 @@ impl EverythingClient {
         max_results: Option<u32>,
         #[builder(default = Duration::from_millis(3000))] timeout: Duration,
     ) -> Result<QueryList, IpcError> {
+        // let mut current_query_sender = self.inner.current_query_sender.lock().unwrap();
+        #[cfg(not(feature = "tokio"))]
+        let _lock = self.inner.query_lock.lock().unwrap();
+        #[cfg(feature = "tokio")]
+        let _lock = self.inner.query_lock.blocking_lock();
+
         // Reuse query to send the query, then wait for the result
         let receiver = self
             .query(search)
@@ -695,6 +744,7 @@ impl EverythingClient {
             .sort(sort)
             .offset(offset)
             .maybe_max_results(max_results)
+            // .current_query_sender(&mut current_query_sender)
             .call()?;
 
         // Wait for the response with timeout
@@ -807,6 +857,8 @@ impl EverythingClient {
         max_results: Option<u32>,
         #[builder(default = Duration::from_millis(3000))] timeout: Duration,
     ) -> Result<QueryList, IpcError> {
+        let _lock = self.inner.query_lock.lock().await;
+
         // Reuse query_async to send the query, then wait for the result
         let receiver = self
             .query_tokio(search)

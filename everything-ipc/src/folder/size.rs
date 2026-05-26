@@ -13,6 +13,7 @@ use std::{
     cell::UnsafeCell,
     io,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
@@ -43,7 +44,7 @@ pub enum Error {
     Ipc(#[from] wm::IpcError),
 }
 
-#[cfg(any(doc, not(feature = "drop-join-thread")))]
+// #[cfg(any(doc, not(feature = "drop-join-thread")))]
 thread_local! {
     static CLIENT: UnsafeCell<FolderSizeClient> = const { UnsafeCell::new(FolderSizeClient::new()) };
 }
@@ -68,7 +69,14 @@ thread_local! {
 /// ## Returns
 /// - `Ok(u64)`: The size in bytes
 /// - `Err(Error)`: If the path is invalid
-#[cfg(any(doc, not(feature = "drop-join-thread")))]
+///
+/// ## Note
+/// If `drop-join-thread` feature is enabled, you need to call
+/// [`wm::EverythingClient::shared_quit_join_thread()`]
+/// before process exit / DLL unload to avoid deadlock,
+/// or use [`FolderSizeClient`] instead.
+///
+// #[cfg(any(doc, not(feature = "drop-join-thread")))]
 #[builder]
 pub fn get_folder_size(
     #[builder(start_fn)] path: &Path,
@@ -90,7 +98,7 @@ pub fn get_folder_size(
 /// Folder size client with parent directory cache.
 #[derive(Default)]
 pub struct FolderSizeClient {
-    everything: Option<EverythingClient>,
+    everything: Option<Arc<EverythingClient>>,
     last_parent: PathBuf,
     /// `HashMap::new()` is not const.
     result_map: Option<HashMap<String, u64>>,
@@ -105,6 +113,18 @@ impl FolderSizeClient {
             result_map: None,
         }
     }
+
+    /*
+    /// Get or create the Everything client
+    fn everything(&mut self) -> Result<&EverythingClient, wm::IpcError> {
+        // TODO: get_or_try_insert_with()
+        let everything = match self.everything.as_ref() {
+            Some(everything) => everything,
+            None => self.everything.insert(EverythingClient::shared()?),
+        };
+        Ok(everything)
+    }
+    */
 
     /// Get the size of a folder.
     ///
@@ -157,9 +177,9 @@ impl FolderSizeClient {
 
         // Get or create the Everything client
         // TODO: get_or_try_insert_with()
-        let everything = match self.everything.as_mut() {
+        let everything = match self.everything.as_ref() {
             Some(everything) => everything,
-            None => self.everything.insert(EverythingClient::new()?),
+            None => self.everything.insert(EverythingClient::shared()?),
         };
 
         // Check if we need to query for a new parent

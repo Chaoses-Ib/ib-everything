@@ -224,12 +224,28 @@ unsafe impl<A: PluginApp> Sync for PluginHandler<A> {}
 impl<A: PluginApp> PluginHandler<A> {
     /// Panics if already initialized.
     pub fn init_start(&self) {
+        if self.host.get().is_some() {
+            return;
+        }
         self.handle(sys::EVERYTHING_PLUGIN_PM_INIT, 0 as _);
         self.handle(sys::EVERYTHING_PLUGIN_PM_START, 0 as _);
     }
 
     /// Panics if already initialized.
+    ///
+    /// ## Note
+    /// Plugin may be already inited before hijacker is loaded on Everything v1.5.0.1409+.
+    /// Double init and start may cause buggy behavior.
+    ///
+    /// Refs:
+    /// - [在最新的everything上崩溃 - Issue #110 - IbEverythingExt](https://github.com/Chaoses-Ib/IbEverythingExt/issues/110)
+    /// - [在最新的1.5.0.1411b上无效了 - Issue #114 - IbEverythingExt](https://github.com/Chaoses-Ib/IbEverythingExt/issues/114)
+    /// - [关闭显示文件夹大小功能之后还是会显示大小 - Issue #115 - IbEverythingExt](https://github.com/Chaoses-Ib/IbEverythingExt/issues/115)
+    /// - [发现config.yaml必须手动更新 - Issue #116 - IbEverythingExt](https://github.com/Chaoses-Ib/IbEverythingExt/issues/116)
     pub fn init_start_with_config(&self, config: A::Config) {
+        if self.host.get().is_some() {
+            return;
+        }
         self.handle(sys::EVERYTHING_PLUGIN_PM_INIT, 0 as _);
         self.handle(
             sys::EVERYTHING_PLUGIN_PM_START,

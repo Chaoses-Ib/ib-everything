@@ -1,6 +1,6 @@
 [package]
 name = "everything-plugin"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 description = "Rust binding for Everything's plugin SDK"
 authors.workspace = true
